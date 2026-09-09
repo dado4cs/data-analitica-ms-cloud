@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Por convención, cada carpeta de S3 se convierte en una Glue DB distinta.
     GLUE_DB_CATALOGO: str = "catalogo"
     GLUE_DB_COMUNITY: str = "comunity"
-    GLUE_DB_FRONTEND: str = "frontend"
+    GLUE_DB_ITERACTION: str = "iteraction"
 
     model_config = SettingsConfigDict(
         env_file=".env",

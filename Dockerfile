@@ -9,7 +9,7 @@ ENV APP_NAME="Analytics Service" \
     ATHENA_QUERY_TIMEOUT=60 \
     GLUE_DB_CATALOGO="catalogo" \
     GLUE_DB_COMUNITY="comunity" \
-    GLUE_DB_FRONTEND="frontend"
+    GLUE_DB_ITERACTION="iteraction"
 
 WORKDIR /app
 
