@@ -1,10 +1,12 @@
 services:
-  api:
-    build: .
-    # En producción usa la imagen de Docker Hub:
-    # image: villabos/analytics-service:latest
+  analytics_api:
+    image: villabos/analytics-service:v1
     restart: unless-stopped
     env_file:
       - .env
     ports:
       - "8002:8002"
+
+networks:
+  default:
+    name: proycloud_net
