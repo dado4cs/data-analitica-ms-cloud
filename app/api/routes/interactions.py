@@ -27,11 +27,11 @@ def best_rated_movies(limit: int = Query(default=10, ge=1, le=100)):
             m.title,
             m.release_year,
             AVG(CAST(r.score AS DOUBLE)) as average_score,
-            COUNT(r.id) as total_reviews
-        FROM "{ITR}"."reviews" r
-        JOIN "{CAT}"."movie" m ON r.movie_id = CAST(m.id AS VARCHAR)
+            COUNT(r.user_id) as total_reviews
+        FROM "{CAT}"."movie" m
+        JOIN "{ITR}"."iteraction" r ON CAST(m.public_id AS VARCHAR) = r.movie_id AND r.partition_0 = \'reviews\'
         GROUP BY m.title, m.release_year
-        HAVING COUNT(r.id) > 5
+        HAVING COUNT(r.user_id) > 5
         ORDER BY average_score DESC, total_reviews DESC
         LIMIT {limit}
     """
@@ -48,9 +48,9 @@ def most_liked_movies(limit: int = Query(default=10, ge=1, le=100)):
         SELECT 
             m.title,
             m.release_year,
-            COUNT(l.id) as total_likes
-        FROM "{ITR}"."likes" l
-        JOIN "{CAT}"."movie" m ON l.movie_id = CAST(m.id AS VARCHAR)
+            COUNT(l.user_id) as total_likes
+        FROM "{CAT}"."movie" m
+        JOIN "{ITR}"."iteraction" l ON CAST(m.public_id AS VARCHAR) = l.movie_id AND l.partition_0 = \'likes\'
         GROUP BY m.title, m.release_year
         ORDER BY total_likes DESC
         LIMIT {limit}
@@ -65,10 +65,10 @@ def user_social_activity(user_id: int):
     """
     sql = f"""
         SELECT
-            (SELECT COUNT(*) FROM "{ITR}"."reviews" WHERE user_id = '{user_id}') as total_reviews,
-            (SELECT COUNT(*) FROM "{ITR}"."likes" WHERE user_id = '{user_id}') as total_likes,
-            (SELECT COUNT(*) FROM "{ITR}"."watchlists" WHERE user_id = '{user_id}') as total_watchlist,
-            (SELECT COUNT(*) FROM "{ITR}"."watch_history" WHERE user_id = '{user_id}' AND completed = 'true') as movies_completed
+            (SELECT COUNT(*) FROM "{ITR}"."iteraction" WHERE CAST(user_id AS VARCHAR) = \'{user_id}\' AND partition_0 = \'reviews\') as total_reviews,
+            (SELECT COUNT(*) FROM "{ITR}"."iteraction" WHERE CAST(user_id AS VARCHAR) = \'{user_id}\' AND partition_0 = \'likes\') as total_likes,
+            (SELECT COUNT(*) FROM "{ITR}"."iteraction" WHERE CAST(user_id AS VARCHAR) = \'{user_id}\' AND partition_0 = \'watchlist\') as total_watchlist,
+            (SELECT COUNT(*) FROM "{ITR}"."iteraction" WHERE CAST(user_id AS VARCHAR) = \'{user_id}\' AND partition_0 = \'watch_history\' AND completed = \'true\') as movies_completed
     """
     return _execute(sql)
 
@@ -83,10 +83,10 @@ def most_abandoned_movies(limit: int = Query(default=10, ge=1, le=100)):
         SELECT 
             m.title,
             m.release_year,
-            COUNT(w.id) as abandon_count
-        FROM "{ITR}"."watch_history" w
-        JOIN "{CAT}"."movie" m ON w.movie_id = CAST(m.id AS VARCHAR)
-        WHERE w.completed = 'false'
+            COUNT(w.user_id) as abandon_count
+        FROM "{CAT}"."movie" m
+        JOIN "{ITR}"."iteraction" w ON CAST(m.public_id AS VARCHAR) = w.movie_id AND w.partition_0 = \'watch_history\'
+        WHERE w.completed = \'false\'
         GROUP BY m.title, m.release_year
         ORDER BY abandon_count DESC
         LIMIT {limit}

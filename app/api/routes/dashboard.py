@@ -109,7 +109,7 @@ def get_user_retention_cohort():
             user_id,
             DATE_TRUNC('month', CAST(created_at AS TIMESTAMP)) AS activity_month
         FROM (
-            SELECT user_id, created_at FROM "{COM}"."watch_participants"
+            SELECT user_id, joined_at as created_at FROM "{COM}"."watch_participants"
             UNION ALL
             SELECT user_id, created_at FROM "{ITR}"."iteraction"
         ) active_events
