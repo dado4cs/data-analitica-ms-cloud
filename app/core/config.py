@@ -13,9 +13,9 @@ class Settings(BaseSettings):
     # ── Glue Databases ──────────────────────────────────────────────────────
     # Nombres de las bases de datos en AWS Glue (creadas por los Crawlers).
     # Por convención, cada carpeta de S3 se convierte en una Glue DB distinta.
-    GLUE_DB_CATALOGO: str = "catalogo"
-    GLUE_DB_COMUNITY: str = "comunity"
-    GLUE_DB_ITERACTION: str = "iteraction"
+    GLUE_DB_CATALOGO: str = "astra_analytics"
+    GLUE_DB_COMUNITY: str = "astra_analytics"
+    GLUE_DB_ITERACTION: str = "astra_analytics"
 
     model_config = SettingsConfigDict(
         env_file=".env",
