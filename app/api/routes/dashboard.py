@@ -1,13 +1,29 @@
 from fastapi import APIRouter, HTTPException, Query
-from app.athena import run_query
+from app.athena import run_query, partition_filter
 from app.core.config import settings
 from app.core.exceptions import AthenaQueryError, AthenaTimeoutError
+from app.athena.partitions import get_latest_iteraction_partition, get_latest_partition
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard Analytics"])
 
 CAT = settings.GLUE_DB_CATALOGO
 COM = settings.GLUE_DB_COMUNITY
 ITR = settings.GLUE_DB_ITERACTION
+
+def _itr_date() -> str:
+    """Returns an extra AND clause for the iteraction partition date filter."""
+    from app.athena.partitions import get_latest_iteraction_partition
+    d = get_latest_iteraction_partition()
+    return f"AND partition_1 = '{d}'" if d else ""
+
+def _cat_date(alias: str = "") -> str:
+    """Returns an extra AND/WHERE clause for regular table partition date filter."""
+    from app.athena.partitions import get_latest_partition
+    d = get_latest_partition()
+    if not d:
+        return ""
+    prefix = f"{alias}." if alias else ""
+    return f"AND {prefix}partition_0 = '{d}'"
 
 def _execute(sql: str):
     try:
@@ -24,12 +40,12 @@ def get_kpis():
     """
     sql = f"""
     SELECT 
-        (SELECT COUNT(1) FROM "{CAT}"."movie") AS total_movies,
-        (SELECT COUNT(1) FROM "{COM}"."users") AS total_users,
-        (SELECT COUNT(1) FROM "{COM}"."clubs") AS total_clubs,
-        (SELECT COUNT(1) FROM "{COM}"."watch_rooms") AS total_watch_rooms,
-        (SELECT COUNT(1) FROM "{ITR}"."iteraction") AS total_interactions,
-        (SELECT AVG(rating) FROM "{CAT}"."movie") AS avg_movie_rating
+        (SELECT COUNT(1) FROM "{CAT}"."movie" WHERE 1=1 {_cat_date()}) AS total_movies,
+        (SELECT COUNT(1) FROM "{COM}"."users" WHERE 1=1 {_cat_date()}) AS total_users,
+        (SELECT COUNT(1) FROM "{COM}"."clubs" WHERE 1=1 {_cat_date()}) AS total_clubs,
+        (SELECT COUNT(1) FROM "{COM}"."watch_rooms" WHERE 1=1 {_cat_date()}) AS total_watch_rooms,
+        (SELECT COUNT(1) FROM "{ITR}"."iteraction" WHERE 1=1 {_itr_date()}) AS total_interactions,
+        (SELECT AVG(CAST(rating AS DOUBLE)) FROM "{CAT}"."movie" WHERE 1=1 {_cat_date()}) AS avg_movie_rating
     """
     return _execute(sql)
 
@@ -57,10 +73,10 @@ def get_genre_engagement():
         SELECT 
             m.id as movie_id,
             m.rating as avg_rating,
-            (SELECT COUNT(DISTINCT id) FROM "{COM}"."watch_rooms" WHERE movie_id = CAST(m.public_id AS VARCHAR)) as watch_rooms,
-            (SELECT COUNT(1) FROM "{ITR}"."iteraction" WHERE movie_id = CAST(m.public_id AS VARCHAR) AND partition_0 = 'reviews') as total_reviews,
-            (SELECT COUNT(1) FROM "{ITR}"."iteraction" WHERE movie_id = CAST(m.public_id AS VARCHAR) AND partition_0 = 'likes') as total_likes
-        FROM "{CAT}"."movie" m
+            (SELECT COUNT(DISTINCT id) FROM "{COM}"."watch_rooms" WHERE movie_id = CAST(m.public_id AS VARCHAR) {_cat_date()}) as watch_rooms,
+            (SELECT COUNT(1) FROM "{ITR}"."iteraction" WHERE movie_id = CAST(m.public_id AS VARCHAR) AND partition_0 = 'reviews' {_itr_date()}) as total_reviews,
+            (SELECT COUNT(1) FROM "{ITR}"."iteraction" WHERE movie_id = CAST(m.public_id AS VARCHAR) AND partition_0 = 'likes' {_itr_date()}) as total_likes
+        FROM "{CAT}"."movie" m WHERE 1=1 {_cat_date("m")}
     )
     SELECT 
         g.name as genre_name,
@@ -72,6 +88,7 @@ def get_genre_engagement():
     FROM "{CAT}"."genre" g
     JOIN "{CAT}"."movie_genre" mg ON g.id = mg.genre_id
     JOIN movie_stats ms ON mg.movie_id = ms.movie_id
+    WHERE 1=1 {_cat_date("g")} {_cat_date("mg")}
     GROUP BY g.name
     ORDER BY total_watch_rooms DESC
     """
@@ -87,6 +104,7 @@ def get_peak_hours():
         EXTRACT(hour FROM CAST(created_at AS TIMESTAMP)) AS hour_of_day,
         COUNT(1) AS activity_count
     FROM "{COM}"."watch_rooms"
+    WHERE 1=1 {_cat_date()}
     GROUP BY 1
     ORDER BY hour_of_day
     """
@@ -102,16 +120,16 @@ def get_user_retention_cohort():
         SELECT 
             id AS user_id, 
             DATE_TRUNC('month', CAST(created_at AS TIMESTAMP)) AS cohort_month 
-        FROM "{COM}"."users"
+        FROM "{COM}"."users" WHERE 1=1 {_cat_date()}
     ),
     activity AS (
         SELECT 
             user_id,
             DATE_TRUNC('month', CAST(created_at AS TIMESTAMP)) AS activity_month
         FROM (
-            SELECT user_id, joined_at as created_at FROM "{COM}"."watch_participants"
+            SELECT user_id, joined_at as created_at FROM "{COM}"."watch_participants" WHERE 1=1 {_cat_date()}
             UNION ALL
-            SELECT user_id, created_at FROM "{ITR}"."iteraction"
+            SELECT user_id, created_at FROM "{ITR}"."iteraction" WHERE 1=1 {_itr_date()}
         ) active_events
     )
     SELECT 
@@ -141,6 +159,7 @@ def get_content_gap_analysis():
     JOIN "{CAT}"."movie_genre" mg ON g.id = mg.genre_id
     JOIN "{CAT}"."movie" m ON mg.movie_id = m.id
     LEFT JOIN "{COM}"."watch_rooms" wr ON CAST(wr.movie_id AS VARCHAR) = CAST(m.public_id AS VARCHAR)
+    WHERE 1=1 {_cat_date("g")} {_cat_date("mg")} {_cat_date("m")} {_cat_date("wr")}
     GROUP BY g.name
     ORDER BY engagement_ratio DESC
     """
@@ -163,6 +182,7 @@ def get_club_health():
     LEFT JOIN "{COM}"."memberships" m ON c.id = m.club_id
     LEFT JOIN "{COM}"."watch_rooms" wr ON CAST(c.id AS VARCHAR) = CAST(wr.club_id AS VARCHAR)
     LEFT JOIN "{CAT}"."movie" mo ON CAST(wr.movie_id AS VARCHAR) = CAST(mo.public_id AS VARCHAR)
+    WHERE 1=1 {_cat_date("c")} {_cat_date("m")} {_cat_date("wr")} {_cat_date("mo")}
     GROUP BY c.name
     ORDER BY activity_ratio DESC
     """
@@ -180,13 +200,17 @@ def get_movie_lifecycle():
             m.public_id,
             m.title,
             m.rating AS catalog_rating,
-            (SELECT AVG(CAST(score AS DOUBLE)) FROM "{ITR}"."iteraction" WHERE movie_id = CAST(m.public_id AS VARCHAR) AND partition_0 = 'reviews') AS avg_user_review_score,
-            (SELECT COUNT(1) FROM "{ITR}"."iteraction" WHERE movie_id = CAST(m.public_id AS VARCHAR) AND partition_0 = 'likes') AS likes_count,
-            (SELECT COUNT(1) FROM "{COM}"."watch_rooms" WHERE movie_id = CAST(m.public_id AS VARCHAR)) AS watch_room_count
-        FROM "{CAT}"."movie" m
+            (SELECT AVG(CAST(score AS DOUBLE)) FROM "{ITR}"."iteraction" WHERE movie_id = CAST(m.public_id AS VARCHAR) AND partition_0 = 'reviews' {_itr_date()}) AS avg_user_review_score,
+            (SELECT COUNT(1) FROM "{ITR}"."iteraction" WHERE movie_id = CAST(m.public_id AS VARCHAR) AND partition_0 = 'likes' {_itr_date()}) AS likes_count,
+            (SELECT COUNT(1) FROM "{COM}"."watch_rooms" WHERE movie_id = CAST(m.public_id AS VARCHAR) {_cat_date()}) AS watch_room_count
+        FROM "{CAT}"."movie" m WHERE 1=1 {_cat_date("m")}
     )
     SELECT * FROM movie_metrics
     ORDER BY watch_room_count DESC
     LIMIT 100
     """
+    return _execute(sql)
+
+@router.get("/raw")
+def get_raw(sql: str = Query(...)):
     return _execute(sql)
